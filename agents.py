@@ -1,5 +1,6 @@
+import os
 from langchain.agents import create_agent
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from tools import web_search , scrape_url 
@@ -7,8 +8,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#model setup 
-llm = ChatOpenAI(model = "gpt-4o-mini",temperature=0)
+# Ensure GOOGLE_API_KEY is populated for the LangChain Google GenAI integration
+if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+
+# Model setup - using Google's best and most capable model: gemini-2.5-pro
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
+
 
 
 #1st agent 
