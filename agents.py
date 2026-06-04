@@ -12,8 +12,8 @@ load_dotenv()
 if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
     os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 
-# Model setup - using Google's best and most capable model: gemini-2.5-pro
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
+# Model setup - using Gemini 2.5 Flash for high performance and higher daily free quota limits
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 
 
 
