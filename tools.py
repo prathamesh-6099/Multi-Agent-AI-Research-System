@@ -5,9 +5,21 @@ from tavily import TavilyClient
 import os 
 from dotenv import load_dotenv
 from rich import print
+import streamlit as st
 load_dotenv()
 
-tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+def get_secret(key: str) -> str:
+    """Get secret from environment or Streamlit secrets."""
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        return ""
+
+tavily = TavilyClient(api_key=get_secret("TAVILY_API_KEY"))
+
 
 @tool
 def web_search(query : str) -> str:

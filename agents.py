@@ -5,15 +5,31 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from tools import web_search , scrape_url 
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
 
+# Load API keys from environment or Streamlit secrets
+def _get_secret(key: str) -> str:
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        return ""
+
 # Ensure GOOGLE_API_KEY is populated for the LangChain Google GenAI integration
-if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
+if not os.environ.get("GOOGLE_API_KEY"):
+    google_key = _get_secret("GOOGLE_API_KEY") or _get_secret("GEMINI_API_KEY")
+    if google_key:
+        os.environ["GOOGLE_API_KEY"] = google_key
+elif "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
     os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
 
 # Model setup - using Gemini 2.5 Flash for high performance and higher daily free quota limits
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+
 
 
 
