@@ -700,10 +700,75 @@ def agent_card(icon: str, icon_cls: str, name: str, desc: str, state: str):
     """, unsafe_allow_html=True)
 
 
+import os
+
 # ── Session state init ────────────────────────────────────────────────────────
-for key in ("results", "running", "done"):
+for key in ("results", "running", "done", "google_api_key", "tavily_api_key"):
     if key not in st.session_state:
-        st.session_state[key] = {} if key == "results" else False
+        if key == "results":
+            st.session_state[key] = {}
+        elif key in ("google_api_key", "tavily_api_key"):
+            st.session_state[key] = ""
+        else:
+            st.session_state[key] = False
+
+# Helper: check keys configured
+def check_keys_configured():
+    has_google = bool(st.session_state.get("google_api_key") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    if not has_google:
+        try:
+            has_google = bool(st.secrets.get("GOOGLE_API_KEY") or st.secrets.get("GEMINI_API_KEY"))
+        except Exception:
+            pass
+            
+    has_tavily = bool(st.session_state.get("tavily_api_key") or os.getenv("TAVILY_API_KEY"))
+    if not has_tavily:
+        try:
+            has_tavily = bool(st.secrets.get("TAVILY_API_KEY"))
+        except Exception:
+            pass
+            
+    return has_google, has_tavily
+
+# ── Sidebar Settings ────────────────────────────────────────────────────────
+has_g, has_t = check_keys_configured()
+
+with st.sidebar:
+    st.markdown('<div class="section-label">API Configuration</div>', unsafe_allow_html=True)
+    
+    st.markdown("<h3 style='font-size: 0.95rem; color: #a78bfa; margin-bottom: 0.4rem;'>Gemini API Key</h3>", unsafe_allow_html=True)
+    google_key_input = st.text_input(
+        "Gemini API Key",
+        type="password",
+        placeholder="Enter Gemini API Key..." if not has_g else "✓ Configured (from secrets/env)",
+        key="google_key_widget",
+        label_visibility="collapsed"
+    )
+    if google_key_input:
+        st.session_state["google_api_key"] = google_key_input
+        
+    st.markdown("<h3 style='font-size: 0.95rem; color: #a78bfa; margin-top: 1.2rem; margin-bottom: 0.4rem;'>Tavily API Key</h3>", unsafe_allow_html=True)
+    tavily_key_input = st.text_input(
+        "Tavily API Key",
+        type="password",
+        placeholder="Enter Tavily API Key..." if not has_t else "✓ Configured (from secrets/env)",
+        key="tavily_key_widget",
+        label_visibility="collapsed"
+    )
+    if tavily_key_input:
+        st.session_state["tavily_api_key"] = tavily_key_input
+
+    st.markdown("""
+    <div style="font-size: 0.8rem; color: #706860; line-height: 1.5; margin-top: 2rem;">
+    💡 <strong>Note:</strong> API keys entered here are temporary and only stored in your current session.
+    <br><br>
+    To make them permanent on Streamlit Cloud, add them to your app secrets:
+    <pre style="background: #111; color: #a78bfa; padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; margin-top: 0.5rem;">
+GOOGLE_API_KEY = "your-gemini-key"
+TAVILY_API_KEY = "your-tavily-key"
+    </pre>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ── Nav Bar ───────────────────────────────────────────────────────────────────
@@ -774,6 +839,12 @@ col_input, col_gap, col_pipeline = st.columns([5, 0.5, 4.5])
 
 with col_input:
     st.markdown('<div class="section-label">Research Input</div>', unsafe_allow_html=True)
+    
+    # Re-verify configuration for UI state
+    has_g, has_t = check_keys_configured()
+    if not (has_g and has_t):
+        st.info("💡 **Setup Required:** Please expand the sidebar on the left to enter your Gemini and Tavily API keys.")
+        
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
 
     topic = st.text_input(
@@ -833,8 +904,11 @@ with col_pipeline:
 
 # ── Run pipeline ──────────────────────────────────────────────────────────────
 if run_btn:
+    has_g, has_t = check_keys_configured()
     if not topic.strip():
         st.warning("⚠ Please enter a research topic to begin.")
+    elif not (has_g and has_t):
+        st.error("⚠ Missing API keys. Please configure both Gemini and Tavily API keys in the sidebar.")
     else:
         st.session_state.results = {}
         st.session_state.running = True
@@ -845,50 +919,57 @@ if st.session_state.running and not st.session_state.done:
     results = {}
     topic_val = st.session_state.topic_input
 
-    # ── Step 1: Search ──
-    with st.spinner("🔍  Search Agent is gathering information…"):
-        search_agent = build_search_agent()
-        sr = search_agent.invoke({
-            "messages": [("user", f"Find recent, reliable and detailed information about: {topic_val}")]
-        })
-        results["search"] = sr["messages"][-1].content
-        st.session_state.results = dict(results)
+    try:
+        # ── Step 1: Search ──
+        with st.spinner("🔍  Search Agent is gathering information…"):
+            search_agent = build_search_agent()
+            sr = search_agent.invoke({
+                "messages": [("user", f"Find recent, reliable and detailed information about: {topic_val}")]
+            })
+            results["search"] = sr["messages"][-1].content
+            st.session_state.results = dict(results)
 
-    # ── Step 2: Reader ──
-    with st.spinner("📄  Reader Agent is scraping top resources…"):
-        reader_agent = build_reader_agent()
-        rr = reader_agent.invoke({
-            "messages": [("user",
-                f"Based on the following search results about '{topic_val}', "
-                f"pick the most relevant URL and scrape it for deeper content.\n\n"
-                f"Search Results:\n{results['search'][:800]}"
-            )]
-        })
-        results["reader"] = rr["messages"][-1].content
-        st.session_state.results = dict(results)
+        # ── Step 2: Reader ──
+        with st.spinner("📄  Reader Agent is scraping top resources…"):
+            reader_agent = build_reader_agent()
+            rr = reader_agent.invoke({
+                "messages": [("user",
+                    f"Based on the following search results about '{topic_val}', "
+                    f"pick the most relevant URL and scrape it for deeper content.\n\n"
+                    f"Search Results:\n{results['search'][:800]}"
+                )]
+            })
+            results["reader"] = rr["messages"][-1].content
+            st.session_state.results = dict(results)
 
-    # ── Step 3: Writer ──
-    with st.spinner("✍️  Writer is drafting the research report…"):
-        research_combined = (
-            f"SEARCH RESULTS:\n{results['search']}\n\n"
-            f"DETAILED SCRAPED CONTENT:\n{results['reader']}"
-        )
-        results["writer"] = writer_chain.invoke({
-            "topic": topic_val,
-            "research": research_combined
-        })
-        st.session_state.results = dict(results)
+        # ── Step 3: Writer ──
+        with st.spinner("✍️  Writer is drafting the research report…"):
+            research_combined = (
+                f"SEARCH RESULTS:\n{results['search']}\n\n"
+                f"DETAILED SCRAPED CONTENT:\n{results['reader']}"
+            )
+            results["writer"] = writer_chain.invoke({
+                "topic": topic_val,
+                "research": research_combined
+            })
+            st.session_state.results = dict(results)
 
-    # ── Step 4: Critic ──
-    with st.spinner("🧐  Critic is reviewing the report…"):
-        results["critic"] = critic_chain.invoke({
-            "report": results["writer"]
-        })
-        st.session_state.results = dict(results)
+        # ── Step 4: Critic ──
+        with st.spinner("🧐  Critic is reviewing the report…"):
+            results["critic"] = critic_chain.invoke({
+                "report": results["writer"]
+            })
+            st.session_state.results = dict(results)
 
-    st.session_state.running = False
-    st.session_state.done = True
-    st.rerun()
+        st.session_state.running = False
+        st.session_state.done = True
+        st.rerun()
+
+    except Exception as e:
+        st.session_state.running = False
+        st.session_state.done = False
+        clean_error = str(e).replace("[type=", " (type=").replace("]", ")")
+        st.error(f"❌ **An error occurred during pipeline execution:** {clean_error}")
 
 
 # ── Results display ───────────────────────────────────────────────────────────

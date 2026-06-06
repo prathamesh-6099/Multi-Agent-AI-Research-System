@@ -16,27 +16,32 @@ def _get_secret(key: str) -> str:
         return val
     try:
         return st.secrets[key]
-    except (KeyError, FileNotFoundError):
+    except Exception:
         return ""
 
-# Ensure GOOGLE_API_KEY is populated for the LangChain Google GenAI integration
-if not os.environ.get("GOOGLE_API_KEY"):
-    google_key = _get_secret("GOOGLE_API_KEY") or _get_secret("GEMINI_API_KEY")
-    if google_key:
-        os.environ["GOOGLE_API_KEY"] = google_key
-elif "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
-    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-
-# Model setup - using Gemini 2.5 Flash for high performance and higher daily free quota limits
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
-
-
+def get_llm() -> ChatGoogleGenerativeAI:
+    """Gets LLM dynamically, supporting runtime updates from session state."""
+    api_key = ""
+    try:
+        if "google_api_key" in st.session_state and st.session_state["google_api_key"]:
+            api_key = st.session_state["google_api_key"]
+    except Exception:
+        pass
+        
+    if not api_key:
+        api_key = _get_secret("GOOGLE_API_KEY") or _get_secret("GEMINI_API_KEY")
+        
+    if not api_key:
+        raise ValueError(
+            "Gemini API key is missing. Please set GOOGLE_API_KEY in the sidebar, environment, or secrets."
+        )
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key, temperature=0)
 
 
 #1st agent 
 def build_search_agent():
     return create_agent(
-        model = llm,
+        model = get_llm(),
         tools= [web_search]
     )
 
@@ -44,7 +49,7 @@ def build_search_agent():
 
 def build_reader_agent():
     return create_agent(
-        model = llm,
+        model = get_llm(),
         tools = [scrape_url]
     )
 
@@ -69,7 +74,17 @@ Structure the report as:
 Be detailed, factual and professional."""),
 ])
 
-writer_chain = writer_prompt | llm | StrOutputParser()
+# Lazy Chain wrapper to prevent eager LLM initialization at import time
+class LazyChain:
+    def __init__(self, prompt):
+        self.prompt = prompt
+
+    def invoke(self, input_dict, config=None, **kwargs):
+        llm_instance = get_llm()
+        chain = self.prompt | llm_instance | StrOutputParser()
+        return chain.invoke(input_dict, config=config, **kwargs)
+
+writer_chain = LazyChain(writer_prompt)
 
 #critic_chain 
 
@@ -96,4 +111,4 @@ One line verdict:
 ..."""),
 ])
 
-critic_chain = critic_prompt | llm | StrOutputParser()
+critic_chain = LazyChain(critic_prompt)
